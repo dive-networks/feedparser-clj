@@ -6,6 +6,72 @@
            (javax.xml XMLConstants)))
 
 
+(defn- dasherize
+  "Returns string `s` underscores replaced with hyphens"
+  [s]
+  (clojure.string/replace s #"_" "-"))
+
+(defn- update-map-keys [f m]
+  (reduce-kv (fn [hsh k v]
+    (assoc hsh (f k) v)) {} m))
+
+(defn- merge-maps
+  "Given a collection containing collections of maps, each collection's contents is merged
+   into a single map."
+  [colls]
+  (map (partial apply merge) colls))
+
+(defn- interleave-maps
+  "Given [[{:a 1}{:a 2}][{:b 1}{:b 2}][{:c 1}{:c 2}]]
+   the following would be returned:
+     (({:a 1}{:b 1}{:c 1})({:a 2}{:b 2}{:c 2})({:a 3}{:b 3}{:c 3}))"
+  [colls]
+  (apply map list colls))
+
+(defn- zip-merge-maps [colls]
+  (merge-maps (interleave-maps colls)))
+
+;; TODO normalize image paths e.g. //some.path.com should become http://some.path.com
+(defn- children-with-namespace-prefix [children ns-prefix]
+  (filter #(= (name ns-prefix) (.getNamespacePrefix %)) children))
+
+(defn- foreign-elements [entry ns-prefix]
+  (-> entry .getForeignMarkup (children-with-namespace-prefix ns-prefix)))
+
+(defn- element-value-pairs [elements]
+  (map #(vector (.getName %)
+                 (.getTextNormalize %))
+        elements))
+
+(defn- entry-elements [entry element-names ns-prefix]
+  (->> (foreign-elements entry ns-prefix)
+       element-value-pairs
+       (filter (fn [[k _]] (contains? element-names k)))
+       (apply concat)))
+
+(defn- extra-elements-map [entries element-names ns-prefix]
+  (->> entries
+       (map (comp #(update-map-keys (comp keyword dasherize) %)
+                  #(apply hash-map %)
+                  #(entry-elements % element-names ns-prefix)))))
+
+(defn- extra-elements [synd-feed extra-map]
+  (when (seq extra-map)
+    (let [entries (.getEntries synd-feed)]
+      (->> extra-map
+           (map (fn [[ns-prefix element-names]]
+                  (let [name-set (->> (map name element-names) (into #{}))
+                        prefix (name ns-prefix)]
+                    (extra-elements-map entries name-set prefix))))
+           zip-merge-maps))))
+
+(defn- add-extra-to-entries [feed-map extra-maps]
+  (let [entries (map-indexed
+                  (fn [idx entry]
+                    (assoc entry :extra (nth extra-maps idx)))
+                  (:entries feed-map))]
+    (assoc feed-map :entries entries)))
+
 (defrecord feed [authors categories contributors copyright description
                  encoding entries feed-type image language link entry-links
                  published-date title uri])
@@ -105,23 +171,54 @@
         (SyndFeedImpl. (.build (gen-feed-input) rdr) false))))
 
 (defn- parse-internal [^XmlReader xmlreader]
-  (let [feedinput (gen-syndfeedinput)
-        syndfeed (.build feedinput xmlreader)]
-    (make-feed syndfeed)))
+  (let [feedinput (gen-syndfeedinput)]
+    (.build feedinput xmlreader)))
 
-(defn parse-feed "Get and parse a feed from a URL"
-  ([feedsource]
-     (parse-internal (cond
-                       (string? feedsource) (XmlReader. (URL. feedsource))
-                       (instance? HttpURLConnection feedsource) (XmlReader. ^HttpURLConnection feedsource)
-                       (instance? InputStream feedsource) (XmlReader. ^InputStream feedsource)
-                       (instance? File feedsource) (XmlReader. ^File feedsource)
-                       :else (throw (ex-info "Unsupported source" {:source feedsource
-                                                                   :type (type feedsource)})))))
-  ([feedsource user-agent]
-   ;; We need to set User-Agent to avoid HTTP 429 errors
-   ;; https://github.com/scsibug/feedparser-clj/issues/13
-   (let [conn (doto (cast HttpURLConnection
-                          (.openConnection (URL. feedsource)))
-                (.setRequestProperty "User-Agent" user-agent))]
-     (parse-feed conn))))
+(defn- user-agent-connection [url user-agent]
+  (doto (cast HttpURLConnection
+              (.openConnection (URL. url)))
+    (.setRequestProperty "User-Agent" user-agent)))
+
+(defn- url-feed? [feedsource]
+  (string? feedsource))
+
+(defn parse-feed
+  "Get and parse a feed from a URL string, XML File, InputStream or an HttpURLConnection.
+
+   ## Options
+
+   * Provide a `:user-agent` option to set a user agent header when the `feedsource` is a URL string.
+
+   * Provide an `:extra` option in order to extract elements from the feed that are not
+   supported by the RSS/Atom xmlns. This must be a map with the keys being namespace prefixes
+   (either a string or keyword) and the values being a collection of element names without
+   their namespace (either strings or keywords). All matching elements for each namespace
+   will be merged into a single map and then added to each entry's hash-map under the
+   `:extra` key.
+
+   The extra data keys will be dasherized (underscores replaced with hyphens) and cast to
+   keywords. Also note that at this time this only supports elements that are direct
+   descendants of the entry's root node.
+
+   Example: the Google Trends feed uses a xmlns called 'ht' for some of its elements.
+   We want to extract the `ht:picture` and `ht:approx_source` elements. To do this the
+   `:extra` map would be set to `{:ht [:picture :approx_source]}`. One of the returned
+   entries may look like this:
+
+   `{:title 'Mother Teresa' :extra {:picture 'http://example.com' :approx-source '1,000,000+}}`."
+  [feedsource & {:keys [user-agent extra]}]
+  (let [source (if (and url-feed? user-agent)
+                 ;; set User-Agent to avoid HTTP 429 errors
+                 (user-agent-connection feedsource user-agent)
+                 feedsource)
+        synd-feed (-> (cond
+                        (url-feed? source) (XmlReader. (URL. source))
+                        (instance? HttpURLConnection source) (XmlReader. ^HttpURLConnection source)
+                        (instance? InputStream source) (XmlReader. ^InputStream source)
+                        (instance? File source) (XmlReader. ^File source)
+                        :else (throw (ex-info "Unsupported source"
+                                              {:source source :type (type source)})))
+                      parse-internal)
+        extra-maps (extra-elements synd-feed extra)]
+    (-> (make-feed synd-feed)
+        (add-extra-to-entries extra-maps))))
