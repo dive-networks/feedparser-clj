@@ -1,6 +1,6 @@
 (ns feedparser-clj.core
   (:import (com.rometools.rome.io SyndFeedInput XmlReader WireFeedInput)
-           (java.net URL)
+           (java.net URL HttpURLConnection)
            (java.io Reader InputStream File)
            (com.rometools.rome.feed.synd SyndFeedImpl SyndFeed SyndEntry SyndImage SyndPerson SyndCategory SyndLink SyndContent SyndEnclosure)
            (javax.xml XMLConstants)))
@@ -113,9 +113,15 @@
   ([feedsource]
      (parse-internal (cond
                        (string? feedsource) (XmlReader. (URL. feedsource))
+                       (instance? HttpURLConnection feedsource) (XmlReader. ^HttpURLConnection feedsource)
                        (instance? InputStream feedsource) (XmlReader. ^InputStream feedsource)
                        (instance? File feedsource) (XmlReader. ^File feedsource)
                        :else (throw (ex-info "Unsupported source" {:source feedsource
                                                                    :type (type feedsource)})))))
-  ([feedsource content-type]
-     (parse-internal (new XmlReader ^InputStream feedsource true content-type))))
+  ([feedsource user-agent]
+   ;; We need to set User-Agent to avoid HTTP 429 errors
+   ;; https://github.com/scsibug/feedparser-clj/issues/13
+   (let [conn (doto (cast HttpURLConnection
+                          (.openConnection (URL. feedsource)))
+                (.setRequestProperty "User-Agent" user-agent))]
+     (parse-feed conn))))
