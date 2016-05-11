@@ -1,4 +1,5 @@
 (ns feedparser-clj.core
+  (require [base64-clj.core :as base64])
   (:import (com.rometools.rome.io SyndFeedInput XmlReader WireFeedInput)
            (java.net URL HttpURLConnection)
            (java.io Reader InputStream File)
@@ -174,10 +175,27 @@
   (let [feedinput (gen-syndfeedinput)]
     (.build feedinput xmlreader)))
 
-(defn- user-agent-connection [url user-agent]
-  (doto (cast HttpURLConnection
-              (.openConnection (URL. url)))
-    (.setRequestProperty "User-Agent" user-agent)))
+(defn- with-user-agent [connection user-agent]
+  "Adds User-Agent property to the given HttpURLConnection to avoid HTTP 429 errors"
+  (if user-agent
+    (.setRequestProperty connection "User-Agent" user-agent)
+    connection))
+
+(defn- with-basic-authentication [connection username password]
+  "Adds Basic Authentication property to the given HttpURLConnection"
+  (if username
+    (let [encoding (base64/encode (str username ":" password))]
+      (.setRequestProperty connection "Authorization" (str "Basic " encoding) ))
+    connection))
+
+(defn- connection-with-properties [url {:keys [user-agent username password]}]
+  "Returns an HttpURLConnection for `url`.
+  Options:
+  * :user-agent for setting the user agent header
+  * :username and :password for setting a Basic authentication header"
+  (doto (cast HttpURLConnection (.openConnection (URL. url)))
+    (with-user-agent user-agent)
+    (with-basic-authentication username password)))
 
 (defn- url-feed? [feedsource]
   (string? feedsource))
@@ -187,7 +205,9 @@
 
    ## Options
 
-   * Provide a `:user-agent` option to set a user agent header when the `feedsource` is a URL string.
+  * :user-agent for setting the user agent header (for URL `feedsource` only)
+
+  * :username and :password for setting a Basic authentication header (for URL `feedsource` only)
 
    * Provide an `:extra` option in order to extract elements from the feed that are not
    supported by the RSS/Atom xmlns. This must be a map with the keys being namespace prefixes
@@ -206,10 +226,9 @@
    entries may look like this:
 
    `{:title 'Mother Teresa' :extra {:picture 'http://example.com' :approx-source '1,000,000+}}`."
-  [feedsource & {:keys [user-agent extra]}]
-  (let [source (if (and url-feed? user-agent)
-                 ;; set User-Agent to avoid HTTP 429 errors
-                 (user-agent-connection feedsource user-agent)
+  [feedsource & {:keys [extra] :as options}]
+  (let [source (if (url-feed? feedsource)
+                 (connection-with-properties feedsource options)
                  feedsource)
         synd-feed (-> (cond
                         (url-feed? source) (XmlReader. (URL. source))
