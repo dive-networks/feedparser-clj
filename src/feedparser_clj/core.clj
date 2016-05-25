@@ -366,9 +366,11 @@
 
    Example: the Google Trends feed uses a xmlns called 'ht' for some of its elements.
    We want to extract the `ht:picture` and `ht:approx_source` elements. To do this the
-   `:extra` map would be set to `{:ht [{:key :picture :transform first} 
-                                       {:key :approx_source]}`. One of the returned
-   entries may look like this:
+   `:extra` map would be set to: 
+   
+   `{:ht [{:key :picture :transform first} {:key :approx_source}]}`
+        
+   And one of the returned entries may look like this:
 
    `{:title 'Mother Teresa' :extra {:picture 'http://example.com' :approx-source ('1,000,000+')}}`."
   [feedsource & {:keys [extra] :as options}]
