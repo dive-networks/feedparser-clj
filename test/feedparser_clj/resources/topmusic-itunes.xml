@@ -13,7 +13,7 @@
     <im:contentType term="Music Video" label="Music Video"/>
     <im:artist href="https://itunes.apple.com/us/artist/rihanna/id63346553?uo=2">Rihanna</im:artist>
     <im:price amount="1.99000" currency="USD">$1.99</im:price>
-    <im:image height="53">http://is2.mzstatic.com/image/thumb/Video69/v4/3e/bc/99/3ebc9992-5fa0-8115-f474-7410f1e49448/vidtrkimg_00851365006868_1_1.jpg/71x53bb-85.jpg</im:image>
+    <im:image height="53" awesomeAttri="omg, awesome value">http://is2.mzstatic.com/image/thumb/Video69/v4/3e/bc/99/3ebc9992-5fa0-8115-f474-7410f1e49448/vidtrkimg_00851365006868_1_1.jpg/71x53bb-85.jpg</im:image>
     <im:image height="60">http://is3.mzstatic.com/image/thumb/Video69/v4/3e/bc/99/3ebc9992-5fa0-8115-f474-7410f1e49448/vidtrkimg_00851365006868_1_1.jpg/80x60bb-85.jpg</im:image>
     <im:image height="100">http://is4.mzstatic.com/image/thumb/Video69/v4/3e/bc/99/3ebc9992-5fa0-8115-f474-7410f1e49448/vidtrkimg_00851365006868_1_1.jpg/100x100bb-85.jpg</im:image>
     <im:releaseDate label="February 23, 2016">2016-02-23T00:00:00-07:00</im:releaseDate>

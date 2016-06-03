@@ -17,7 +17,7 @@
   (reduce-kv (fn [hsh k v]
     (assoc hsh (f k) v)) {} m))
 
-(defn- find-first 
+(defn- find-first
   [pred coll]
   (first (filter pred coll)))
 
@@ -44,20 +44,33 @@
 (defn- foreign-elements [entry ns-prefix]
   (-> entry .getForeignMarkup (children-with-namespace-prefix ns-prefix)))
 
-(defn- element-value-pairs [elements]
+(defn- extra-attributes-map
+  "Returns a map representation of extra element attributes where attribute
+   names (turned into keywords) map to attribute values as strings."
+   [extra-attributes]
+   (reduce
+     (fn [attr-map attribute]
+       (assoc attr-map
+              (keyword (.getQualifiedName attribute))
+              (.getValue attribute)))
+     {}
+     extra-attributes))
+
+(defn- element-value-tuples [elements]
   (map #(vector (.getName %)
-                 (.getTextNormalize %))
+                 (.getTextNormalize %)
+                 (extra-attributes-map (.getAttributes %)))
         elements))
 
 (defn- entry-elements [entry element-names ns-prefix]
   (->> (foreign-elements entry ns-prefix)
-       element-value-pairs
-       (filter (fn [[k _]] (contains? element-names k)))))
+       element-value-tuples
+       (filter (fn [[k & _]] (contains? element-names k)))))
 
 (defn- extra-elements-map
   "Returns a list of element-maps (one for each entry), where each element-map
    maps element names each to a list of values parsed.
-  
+
   Example: ({:picture_source (\"Chicago Tribune\" \"Made-up source\")
              :approx_traffic (\"1,000,000+\")})"
   [entries element-names ns-prefix]
@@ -65,13 +78,14 @@
        (map (comp #(update-map-keys keyword %)
                   #(apply merge-with
                           concat
-                          (map (fn [[extra-key extra-value]]
-                                 {extra-key (list extra-value)}) %1))
+                          (map (fn [[extra-key extra-value extra-attributes]]
+                                 {extra-key (list [extra-value
+                                                   extra-attributes])}) %1))
                   #(entry-elements % element-names ns-prefix)))))
 
 (defn- get-transform-from-specs
-  "Returns the transform function specified in element-specs given the 
-   elem-key. If no transform function is found, returns the identity 
+  "Returns the transform function specified in element-specs given the
+   elem-key. If no transform function is found, returns the identity
    function."
   [element-specs elem-key]
   (or (->> element-specs
@@ -82,7 +96,7 @@
 (defn- apply-transform-funcs
   "Returns the elements-map with transformed values. The transform functions
    used for data under some element name are to be specified in element-specs
-   (see doc for parse-feed for the format), otherwise a default function is used 
+   (see doc for parse-feed for the format), otherwise a default function is used
    (also see doc for parse-feed)."
   [element-specs elements-map]
   (reduce-kv (fn [transformed-elements-map elem-key ignore-elem-values]
@@ -105,7 +119,7 @@
                   (let [name-set (->> element-specs (map (comp name :elem-name)) (into #{}))
                         prefix (name ns-prefix)
                         element-maps (extra-elements-map entries name-set prefix)]
-                    (map (comp dasherize-map-keys 
+                    (map (comp dasherize-map-keys
                                (partial apply-transform-funcs element-specs))
                          element-maps))))
            zip-merge-maps))))
@@ -148,7 +162,7 @@
 (defrecord media-category [value scheme label])
 
 ; represents data parsed from an MRSS-formatted feed
-(defrecord media-data [thumbnails keywords credits copyright texts description 
+(defrecord media-data [thumbnails keywords credits copyright texts description
                        categories images videos])
 
 (defrecord enclosure [length type uri])
@@ -223,7 +237,7 @@
                                 (.toString reference)))
                        :type (.getType m-content)
                        :width (.getWidth m-content)
-                       :height (.getHeight m-content)                  
+                       :height (.getHeight m-content)
                        :bitrate (.getBitrate m-content)
                        :duration (.getDuration m-content)
                        :filesize (.getFileSize m-content)})))
@@ -349,30 +363,38 @@
    * Provide an `:extra` option in order to extract elements from the feed that are not
    supported by the RSS/Atom xmlns. This must be a map with the keys being namespace prefixes
    (either a string or keyword) and the values being a collection of maps in the format:
-  
+
    {:elem-name :name :transform function-name}
-  
-   where the elem-name value is the element name without their namespace (either 
-   strings or keywords) and the transform value is a function (defaulted to identity) 
-   applied to the list of  values found with the specified name, to produce the final 
-   output. All matching elements for each namespace will be merged into a single map 
+
+   where the elem-name value is the element name without their namespace (either
+   strings or keywords) and the transform value is a function (defaulted to identity)
+   applied to the list of  values found with the specified name, to produce the final
+   output. All matching elements for each namespace will be merged into a single map
    and then added to each entry's hash-map under the `:extra` key.
 
-   All element values with a specific namespace:name, are put into one list and fed to 
-   the transform function to produce the final output. The extra data keys will be 
-   dasherized (underscores replaced with hyphens) and cast to keywords. Also note that 
-   at this time this only supports elements that are direct descendants of the 
-   entry's root node.
+   All element values with a specific namespace:name, are put into one list.
+   Each element value is a ordered pair (2-tuple) like [value attributes], where
+   value is the value and attributes is a map of attribute names (as keywords)
+   to attribute values (as strings).
+
+   This list of element values is then fed to the transform function to produce
+   the final output.
+
+   The extra data keys will be dasherized (underscores replaced with hyphens)
+   and cast to keywords. Also note that at this time this only supports elements
+   that are direct descendants of the entry's root node.
 
    Example: the Google Trends feed uses a xmlns called 'ht' for some of its elements.
    We want to extract the `ht:picture` and `ht:approx_source` elements. To do this the
-   `:extra` map would be set to: 
-   
+   `:extra` map would be set to:
+
    `{:ht [{:key :picture :transform first} {:key :approx_source}]}`
-        
+
    And one of the returned entries may look like this:
 
-   `{:title 'Mother Teresa' :extra {:picture 'http://example.com' :approx-source ('1,000,000+')}}`."
+   `{:title 'Mother Teresa'
+     :extra {:picture ['http://example.com' {:language 'English'}]
+             :approx-source (['1,000,000+' {}])}}`."
   [feedsource & {:keys [extra] :as options}]
   (let [source (if (url-feed? feedsource)
                  (connection-with-properties feedsource options)
