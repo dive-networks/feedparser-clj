@@ -5,3 +5,4 @@
 .nrepl-port
 *.log
 target
+/.idea/
