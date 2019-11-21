@@ -1,4 +1,4 @@
-(defproject org.clojars.dive-networks/feedparser-clj "0.5.3"
+(defproject org.clojars.dive-networks/feedparser-clj "0.6.0"
   :description "Parse RSS/Atom feeds with a simple, clojure-friendly API."
   :dependencies [[base64-clj "0.1.1"]
                  [org.clojure/clojure "1.10.1"]
