@@ -1,5 +1,5 @@
 (ns feedparser-clj.core
-  (require [base64-clj.core :as base64])
+  (:require [base64-clj.core :as base64])
   (:import (com.rometools.rome.io SyndFeedInput XmlReader WireFeedInput)
            (com.rometools.modules.mediarss MediaEntryModule)
            (com.rometools.modules.mediarss.types Thumbnail Metadata MediaContent Reference UrlReference Category)
